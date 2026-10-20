@@ -1,0 +1,13 @@
+.venv
+__pycache__
+*.pyc
+.cache
+data
+.env
+.env.*
+!.env.example
+.git
+.github
+*.md
+test_*.py
+test_webapp.mjs

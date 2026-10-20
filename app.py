@@ -7,6 +7,7 @@ import argparse
 import csv
 import json
 import math
+import os
 import re
 import subprocess
 import sys
@@ -25,6 +26,10 @@ TAIPEI = ZoneInfo("Asia/Taipei")
 PATTERN = re.compile(r"^gainers_(\d{4}-\d{2}-\d{2})_([\d.]+)_([\d.]+)_vol([\d.]+)x_ma(\d+)\.checked\.csv$")
 NUMBERS = {"price", "reference_price", "change_percent", "today_volume_shares", "avg_daily_volume_shares",
            "volume_ratio", "volume_average_days"}
+# 部署在本機以外（例如容器）時，反向代理轉送的 Host/Origin 不會是 127.0.0.1／localhost，
+# 需透過這兩個環境變數白名單實際的對外網域，預設為空集合＝維持原本僅限本機的行為。
+ALLOWED_HOSTS = {h.strip() for h in os.environ.get("ALLOWED_HOSTS", "").split(",") if h.strip()}
+ALLOWED_ORIGINS = {o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()}
 
 
 def parameters(payload):
@@ -171,7 +176,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def valid_host(self):
-        return self.headers.get("Host") in {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
+        port = self.server.server_port
+        allowed = {f"127.0.0.1:{port}", f"localhost:{port}"} | ALLOWED_HOSTS
+        return self.headers.get("Host") in allowed
 
     def do_GET(self):
         if not self.valid_host():
@@ -196,7 +203,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(dict(error="讀取資料失敗：" + str(exc)), 400)
 
     def do_POST(self):
-        origins = {f"http://127.0.0.1:{self.server.server_port}", f"http://localhost:{self.server.server_port}"}
+        origins = {f"http://127.0.0.1:{self.server.server_port}", f"http://localhost:{self.server.server_port}"} | ALLOWED_ORIGINS
         if not self.valid_host() or self.headers.get("Origin") not in origins:
             return self.respond(dict(error="僅接受本機 App 發出的操作"), 403)
         if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
@@ -223,15 +230,16 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--host", default=os.environ.get("APP_HOST", "127.0.0.1"))
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8765)))
     args = parser.parse_args()
     if not 1024 <= args.port <= 65535:
         parser.error("port 需介於 1024～65535")
     try:
-        server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+        server = ThreadingHTTPServer((args.host, args.port), Handler)
     except OSError as exc:
-        parser.exit(1, f"無法啟動：{exc}。若已在執行，直接開啟 http://127.0.0.1:{args.port}\n")
-    print(f"台股篩選 App：http://127.0.0.1:{args.port}\n按 Ctrl+C 停止。", flush=True)
+        parser.exit(1, f"無法啟動：{exc}。若已在執行，直接開啟 http://{args.host}:{args.port}\n")
+    print(f"台股篩選 App：http://{args.host}:{args.port}\n按 Ctrl+C 停止。", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

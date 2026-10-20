@@ -1,0 +1,47 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "stock-screen-app",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-12-05",
+
+  // Container 設定：image 指向專案根目錄的 Dockerfile，由 Worker 透過 Durable Object 綁定代理流量。
+  "containers": [
+    {
+      "class_name": "StockScreenContainer",
+      "image": "./Dockerfile",
+      "max_instances": 1,
+      "instance_type": "basic"
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "StockScreenContainer",
+        "name": "STOCK_SCREEN_CONTAINER"
+      }
+    ]
+  },
+
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["StockScreenContainer"]
+    }
+  ],
+
+  // 自訂網域：xsong.us 這個 zone 必須已經加進這個 Cloudflare 帳號，
+  // 部署後 Cloudflare 會自動核發憑證、把 stock.xsong.us 指到這個 Worker。
+  "routes": [
+    { "pattern": "stock.xsong.us", "custom_domain": true }
+  ],
+
+  // 非機密設定值，要跟上面的自訂網域一致，否則 app.py 的 Host/Origin 白名單會把請求擋掉。
+  "vars": {
+    "ALLOWED_HOSTS": "stock.xsong.us",
+    "ALLOWED_ORIGINS": "https://stock.xsong.us"
+  }
+
+  // 機密值（FUGLE_API_KEY、FINMIND_TOKEN）不要寫在這個檔案裡，
+  // 用 `wrangler secret put FUGLE_API_KEY` 等指令個別設定。
+}
