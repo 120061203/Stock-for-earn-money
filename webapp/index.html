@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>台股量價｜股票篩選器</title><meta name="description" content="調整漲幅與量能條件，篩選台灣上市櫃股票。"><link rel="stylesheet" href="/style.css"><script src="/app.js" type="module"></script></head>
+<body>
+<aside class="sidebar">
+  <a class="brand" href="/" aria-label="台股量價首頁"><span class="brand-icon">▥</span><span>台股量價<small>TAIWAN STOCK SCANNER</small></span></a>
+  <div class="nav-label">工作台</div><nav><a href="#scanner" class="nav-item active"><span>◫</span>股票篩選器<span class="nav-arrow">↗</span></a><button class="nav-item" id="helpNav"><span>ⓘ</span>資料與計算方式</button></nav>
+  <div class="sidebar-bottom"><span class="dot"></span>本機模式<p>API 憑證保留在這台電腦<br>行情來源：TWSE MIS · 富果 · FinMind</p><span class="version">SCANNER / 01</span></div>
+</aside>
+<main id="scanner">
+  <header class="topbar"><div class="breadcrumb">工作台 <span>/</span> 股票篩選器</div><div class="local-badge"><span class="dot"></span>LOCAL APP</div></header>
+  <section class="hero"><div><p class="eyebrow">PRICE × VOLUME</p><h1>找到今天的量價焦點<span>。</span></h1><p class="hero-subtitle">從上市櫃股票中，找出漲幅與量能同時符合條件的個股。</p></div><div class="hero-date"><span id="tradeDate">讀取資料中</span><small id="updatedAt">等待載入最近一次掃描</small></div></section>
+  <div id="message" class="message" role="status" hidden></div>
+  <section class="filter-card" aria-labelledby="filterTitle">
+    <div class="section-heading"><h2 id="filterTitle"><span class="heading-icon">≡</span>設定篩選條件</h2><button id="reset" class="text-button">恢復預設 ↺</button></div>
+    <form id="filters">
+      <div class="filter-grid">
+        <div class="field"><label for="minChange">當日漲幅</label><div class="range-input"><div><input id="minChange" type="number" min="0" max="10" step="0.1" value="3" required aria-label="最低漲幅"><span>%</span></div><span class="range-dash">—</span><div><input id="maxChange" type="number" min="0" max="10" step="0.1" value="5" required aria-label="最高漲幅"><span>%</span></div></div><small>含上下限，只比較有效成交價</small></div>
+        <div class="field"><label for="minRatio">最低量能倍數</label><div class="single-input"><input id="minRatio" type="number" min="0.1" max="50" step="0.1" value="2" required><span>倍</span></div><small>今日累計量 ÷ 歷史日均量</small></div>
+        <div class="field"><label for="averageDays">日均量期間</label><div class="select-wrap"><select id="averageDays"><option value="5">前 5 個交易日</option><option value="10">前 10 個交易日</option><option value="20" selected>前 20 個交易日</option><option value="60">前 60 個交易日</option></select></div><small>不含今天，不推估全日成交量</small></div>
+        <div class="filter-action"><button id="scan" class="primary-button" type="submit"><span id="scanIcon">↻</span><span id="scanText">更新行情並篩選</span></button><small>調整條件可先篩選已下載資料</small></div>
+      </div>
+    </form>
+    <div class="filter-footer"><span class="mini-icon">ⓘ</span><span id="coverage">正在讀取資料範圍…</span></div>
+    <div class="scan-progress" id="scanProgress" hidden><div><span id="progressText">準備更新…</span><button class="text-button" id="stopScan">停止更新</button></div><progress id="progressBar" max="100" value="0" aria-label="行情更新進度"></progress></div>
+  </section>
+  <section class="metrics" aria-label="篩選摘要">
+    <article class="metric"><span>目前顯示個股</span><div><strong id="matchedCount">—</strong><small>檔</small><span class="metric-tag">MATCHES</span></div><p>包含市場與搜尋條件</p></article>
+    <article class="metric"><span>平均量能倍數</span><div><strong id="avgRatio">—</strong><small>倍</small><span class="metric-symbol">↗</span></div><p>符合個股相對歷史日均量</p></article>
+    <article class="metric"><span>今日有效行情</span><div><strong id="validCount">—</strong><small>檔</small></div><p id="universeNote">上市與上櫃普通股</p></article>
+    <article class="metric"><span>資料待確認</span><div><strong id="unknownCount">—</strong><small>檔</small><span class="muted-symbol">◌</span></div><p id="unknownNote">缺報價或量能未完成檢查</p><button id="showMissing" class="text-button">查看缺失原因</button></article>
+  </section>
+  <section class="results-card" id="resultsCard" aria-labelledby="resultsTitle" aria-busy="true">
+    <div class="results-header"><div><h2 id="resultsTitle">篩選結果 <span class="count-pill" id="resultPill">0</span></h2><p id="resultDescription">依量能倍數排序 · 點選個股查看詳情</p></div><button class="secondary-button" id="download" disabled>↓ 下載 CSV</button></div>
+    <div class="toolbar"><div class="segments" aria-label="市場篩選"><button class="segment active" data-market="all" aria-pressed="true">全部市場</button><button class="segment" data-market="上市" aria-pressed="false">上市</button><button class="segment" data-market="上櫃" aria-pressed="false">上櫃</button></div><div class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="搜尋代號或名稱" aria-label="搜尋股票"><button id="clearSearch" type="button" aria-label="清除搜尋" hidden>×</button></div></div>
+    <div id="loadingState" class="loading-state" role="status"><span class="loading-ring" aria-hidden="true"></span>正在讀取已下載的行情資料…</div>
+    <div class="table-wrap"><table><thead><tr><th class="index-col">#</th><th><button data-sort="symbol">股票 <span>↕</span></button></th><th>市場</th><th class="numeric"><button data-sort="price">成交價 <span>↕</span></button></th><th class="numeric"><button data-sort="change_percent">漲幅 <span>↕</span></button></th><th class="numeric"><button data-sort="today_volume_shares">今日量 <small>張</small> <span>↕</span></button></th><th class="numeric"><button data-sort="avg_daily_volume_shares">日均量 <small>張</small> <span>↕</span></button></th><th class="numeric"><button data-sort="volume_ratio">量能倍數 <span id="ratioSort">↓</span></button></th><th class="time-col">成交時間</th><th></th></tr></thead><tbody id="stockRows"></tbody></table></div>
+    <div id="emptyState" class="empty-state" hidden><span>⌕</span><h3>目前沒有符合的股票</h3><p id="emptyText">試著調整篩選條件，或重新更新行情。</p></div>
+    <div class="table-footer"><span id="tableCount" aria-live="polite">正在載入結果…</span><span><span class="dot"></span>真實資料 · 每檔成交時間可能不同</span></div>
+  </section>
+  <footer class="page-footer"><span>台股量價 / 讓條件說話</span><button id="helpFooter" class="text-button">資料說明 ↗</button></footer>
+</main>
+<dialog id="detailDialog"><div class="dialog-header"><div><p class="eyebrow" id="detailCode"></p><h2 id="detailName"></h2></div><button class="close-dialog" aria-label="關閉詳情">×</button></div><div id="detailContent"></div></dialog>
+<dialog id="missingDialog"><div class="dialog-header"><h2>未確認資料與原因</h2><button class="close-dialog" aria-label="關閉缺失原因">×</button></div><div class="help-content" id="missingContent"></div></dialog>
+<dialog id="helpDialog"><div class="dialog-header"><h2>資料與計算方式</h2><button class="close-dialog" aria-label="關閉說明">×</button></div><div class="help-content"><h3>漲幅</h3><p>以證交所 MIS 的有效最後成交價及昨收／參考價計算，缺失時用富果實際成交資料補查。無有效成交價、資料日期非今天的股票不列入當次掃描。</p><h3>量能倍數</h3><p>今日整股累計量 ÷ 前 N 個交易日平均成交股數。MIS 累計張數換算成股，歷史日線成交量優先使用 FinMind，缺失時改查富果。富果整股累計張數亦換算成股；個股詳情列出實際來源。日均量不含今天；盤中不推估全日量。</p><h3>更新與資料範圍</h3><p>畫面先顯示最近一次完成的掃描。調整條件會篩選已下載資料；漲幅超出已下載範圍或變更日均量天數時，需要更新行情。遇 API 額度限制會揭露未完成檢查數，不會當成不符合。</p><p>股票名單為本機既有上市櫃普通股清單，不含 ETF、特別股、權證及興櫃；名單日期可在資料卡查看。量價篩選不等於買進訊號。</p></div></dialog>
+</body></html>
