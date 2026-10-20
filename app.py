@@ -202,6 +202,34 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, OSError) as exc:
             return self.respond(dict(error="讀取資料失敗：" + str(exc)), 400)
 
+    def read_body(self):
+        # 反向代理（例如 Cloudflare container 的轉送）可能不帶 Content-Length，改用
+        # chunked 傳輸；http.server 本身不會解 chunked，這裡手動解析，並維持原本
+        # 2048 bytes 的上限。
+        if "chunked" in self.headers.get("Transfer-Encoding", "").lower():
+            body = bytearray()
+            while True:
+                line = self.rfile.readline(64)
+                try:
+                    size = int(line.split(b";")[0].strip(), 16)
+                except ValueError:
+                    raise ValueError("請求大小無效") from None
+                if size == 0:
+                    while self.rfile.readline(64) not in (b"\r\n", b"\n", b""):
+                        pass
+                    break
+                if len(body) + size > 2048:
+                    raise ValueError("請求大小無效")
+                chunk = self.rfile.read(size)
+                if len(chunk) != size or self.rfile.read(2) != b"\r\n":
+                    raise ValueError("請求大小無效")
+                body += chunk
+            return bytes(body)
+        size = int(self.headers.get("Content-Length", 0))
+        if not 0 < size <= 2048:
+            raise ValueError("請求大小無效")
+        return self.rfile.read(size)
+
     def do_POST(self):
         origins = {f"http://127.0.0.1:{self.server.server_port}", f"http://localhost:{self.server.server_port}"} | ALLOWED_ORIGINS
         if not self.valid_host() or self.headers.get("Origin") not in origins:
@@ -209,10 +237,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
             return self.respond(dict(error="需要 JSON"), 415)
         try:
-            size = int(self.headers.get("Content-Length", 0))
-            if not 0 < size <= 2048:
-                raise ValueError("請求大小無效")
-            payload = json.loads(self.rfile.read(size))
+            payload = json.loads(self.read_body())
             if not isinstance(payload, dict):
                 raise ValueError("請求格式無效")
             if self.path == "/api/scan":
