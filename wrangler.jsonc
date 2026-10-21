@@ -4,6 +4,11 @@
   "main": "src/index.ts",
   "compatibility_date": "2024-12-05",
 
+  // 開啟才能在 Containers 頁面看到 container 的執行期 log（app.py 的 print 輸出）。
+  "observability": {
+    "enabled": true
+  },
+
   // Container 設定：image 指向專案根目錄的 Dockerfile，由 Worker 透過 Durable Object 綁定代理流量。
   // name 寫死成第一次部署時實際建立的 application 名稱——它綁定著一個固定的 Durable Object
   // namespace，若改成跟著上面的 Worker name 走會推導出不同名字，導致 wrangler 想另外新建一個
