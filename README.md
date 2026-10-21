@@ -40,10 +40,51 @@ python app.py
 
 股票名單不含 ETF、特別股、權證及興櫃。量價條件篩選尚未套用其他選股評分策略。
 
+### 篩選股 1 盤中自動更新
+
+在篩選股 1 勾選「盤中自動更新」，會立即重新掃描，之後每次掃描結束再等待 60 秒／2 分鐘／5 分鐘發起下一次更新。漲幅與當日累計量每輪重新查詢，歷史日均量沿用既有日線快取。更新方式為定時查詢，實際刷新間隔包含完整市場掃描的耗時，資料時效以各檔成交時間及來源回應為準。
+
+前一次掃描或其他策略仍在執行時等待；頁面切至背景時暫停新掃描。取消勾選會停止排程，正在執行的掃描可用「停止更新」取消；按停止、恢復預設或發生連線／掃描錯誤亦會關閉自動更新。關閉頁面後不會繼續排程。盤中量比為累計量／不含今天的歷史日均量，不推估收盤量。
+
+## 篩選股 2：超賣反彈與籌碼評分
+
+開啟 http://127.0.0.1:8765/strategy2 ，選擇市值前50或全部上市櫃，按「更新策略2」。也可執行 `python strategy2.py --scope top50`（全部為 `--scope all`）。
+
+候選必須同時通過四組，每組內任一條件成立即可：
+
+- 超賣：乖離20 ≤ −8%、乖離60 ≤ −12%、RSI14 ≤30。
+- 反轉：低檔KD金叉、收盤 > MA5、收盤 > MA10。
+- 止跌：恐慌後量縮、長下影、當日最低價 > 前日最低價。
+- 籌碼改善：融資較前5交易日下降、外資轉買、投信轉買。
+
+評分依使用者的12項規則，滿分17分：乖離20 2分、乖離60 1分、RSI 2分、KD金叉2分、站上MA5及MA10各1分、長下影1分、恐慌後量縮1分、低點抬高1分、融資下降1分、外資及投信轉買各2分。依分數排名，沒有最低分數門檻；候選仍須四大群組通過。本版不使用原先的ROE、營收與20日高點跌幅門檻。
+
+KD採9日RSV，K、D平滑係數1/3、初始值50；高低價相等時RSV=50。金叉為前日K≤D且當日K>D，且當日K與D均<25。MA60至少需要60筆完整日線。長下影為 `min(open, close)-low > abs(close-open)*1.5`，十字線亦照此式判斷。恐慌後量縮為前日量>前20交易日均量×1.8且當日量<前日量；均量不含訊號日。
+
+日線優先富果完整OHLCV，失敗時改查FinMind。籌碼使用 FinMind `TaiwanStockMarginPurchaseShortSale` 的 `MarginPurchaseTodayBalance`、`TaiwanStockInstitutionalInvestorsBuySell` 的 `buy-sell`；外資採 `Foreign_Investor`（不含外資自營商），投信採 `Investment_Trust`。轉買定義當日>0、前日≤0。股價當日、前一交易日與前5交易日的日期精準對齊，缺漏不挪用舊日期、不補零。籌碼資料可能晚於日線公布。
+
+缺失的得分項目為空值，總分是已確認分數；標示「部分」並提供可能最高分。某一籌碼分支已確認成立時，即使其餘分支未知仍足以通過該群組。未確認任何改善分支時不列候選。詳情與CSV含各項得分、四組判斷、原始指標、籌碼日期與缺失原因。
+
+結果存入 `data/strategy2_top50.json` / `.csv`（全部為 `strategy2_all`）。盤後日線採16:30前查至昨日的政策，請以各檔訊號日期判讀；資料未還原，除權息可能影響乖離與KD。候選不會自動下單。舊版結果不與本版分數混用，需重新更新。
+
+## 篩選股3：多頭排列、拉回降溫
+
+開啟 http://127.0.0.1:8765/strategy3 ，按「更新日線Watchlist」；可選前50名或全部上市櫃，也可執行 `python strategy3.py --scope top50`。
+
+新版9項評分滿分11：MA60>MA120 1分、收盤>MA60 1分、收盤≥60日高點85% 1分、MA20乖離−8%～+2% 2分、RSI14 40～60 1分、成交量≤前20日均量1.1倍 1分、最低價≥前日最低價1分、收盤>MA5 1分、收盤>前日高點2分。
+
+Watchlist要求前7項全部成立；再由「收盤>MA5 **或** 收盤>前日高點」確認**日線買點**。無最低總分門檻。日線買點按當日已完成收盤判斷，與盤中訊號分開保存。20日均量不含訊號日；60日高點包含訊號日；MA120至少需要120筆完整日線。新上市股票歷史不足會明列原因，不補零或縮短均線週期。
+
+盤中可按「更新盤中訊號」或 `python strategy3.py --scope top50 --live`，以昨日Watchlist為基礎，要求「價格>即時MA5 **或** 突破昨日高點」，並且「今日最低價≥昨日最低價」。即時MA5為最近4個已完成收盤加當前成交價的平均，昨日高點與低點取Watchlist最後日K。本版取消VWAP穿越與盤中量比門檻，不需要先看到下方報價；輪詢只提供條件訊號、不自動下單。
+
+自動觀察每輪完成後60秒再查，背景分頁暫停排程。非今日、試撮、暫停交易、已收盤、無有效最低價或超過3分鐘的成交不發盤中訊號。日線查詢截止須為昨日，過期Watchlist會要求先更新。日線採16:30前查至昨日政策，分數不隨盤中報價改變。未還原價格在除權息附近須另外檢視。
+
+輸出 `data/strategy3_top50.json` / `.csv`（全部為 `strategy3_all`），包含MA120、60日高點、各項得分、`daily_buy`與盤中`buy_signal`。舊版13分結果不可混用，需重新更新。
+
 ## 驗證
 
 ```bash
-python -m unittest -q test_app test_today_gainers test_quote_fallback test_fugle_data test_live_data test_technicals test_market_state test_market_universe
+python -m unittest -q test_app test_today_gainers test_quote_fallback test_fugle_data test_live_data test_technicals test_market_state test_market_universe test_strategy2 test_strategy3
 node --test test_webapp.mjs
 ```
 

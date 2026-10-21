@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULTS, numericInput, validParams, filterRows, exportCSV} from './webapp/view-model.mjs';
+import {DEFAULTS, numericInput, validParams, filterRows, exportCSV, AutoRefresh} from './webapp/view-model.mjs';
 
 const rows = [
   {symbol:'2330', name:'台積電', market:'上市', price:100, change_percent:3, volume_ratio:2, volume_status:'已檢查'},
@@ -35,4 +35,36 @@ test('CSV preserves quotes, unicode and only current visible rows', () => {
   assert.ok(csv.includes('"名稱,""測試"""'));
   assert.ok(csv.includes('2330'));
   assert.ok(!csv.includes('5274'));
+});
+test('strategy 2 CSV includes the selected strategy fields and checks', () => {
+  const csv = exportCSV([{symbol:'2330',buy:true,roe:6,rsi_rebound_ok:true}], ['symbol','buy','roe','rsi_rebound_ok']);
+  assert.equal(csv, '\uFEFF"symbol","buy","roe","rsi_rebound_ok"\r\n"2330","true","6","true"');
+});
+
+test('automatic refresh prevents overlap and waits the full interval after completion', async () => {
+  let now=0, calls=0, finish;
+  const clock=new AutoRefresh(()=>{calls++;return new Promise(resolve=>{finish=resolve;});},{now:()=>now});
+  clock.enable();
+  const first=clock.tick();
+  assert.equal(calls,1);
+  await clock.tick();assert.equal(calls,1);
+  now=90000;await clock.tick({blocked:true});assert.equal(calls,1);
+  finish();await first;
+  assert.equal(clock.seconds(),60);
+  now=149999;await clock.tick();assert.equal(calls,1);
+  now=150000;const next=clock.tick();assert.equal(calls,2);finish();await next;
+});
+test('automatic refresh pauses while hidden or scanning and stops on error', async () => {
+  let calls=0, error;
+  const clock=new AutoRefresh(async()=>{calls++;throw new Error('offline');},{onError:e=>{error=e.message;},now:()=>0});
+  clock.enable();
+  await clock.tick({paused:true});await clock.tick({blocked:true});assert.equal(calls,0);
+  await clock.tick();assert.equal(calls,1);assert.equal(error,'offline');assert.equal(clock.enabled,false);
+  await clock.tick();assert.equal(calls,1);
+});
+test('turning automatic refresh off cancels future scans', async () => {
+  let calls=0;
+  const clock=new AutoRefresh(async()=>{calls++;},{now:()=>0});
+  clock.enable();clock.disable();await clock.tick();assert.equal(calls,0);
+  clock.enable();clock.defer();assert.equal(clock.seconds(),60);await clock.tick();assert.equal(calls,0);
 });

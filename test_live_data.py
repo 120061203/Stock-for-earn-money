@@ -12,6 +12,14 @@ def statement(date, value, name="淨利（淨損）歸屬於母公司業主"):
 
 
 class LiveDataTests(unittest.TestCase):
+    def test_http_quota_remains_a_limit_error(self):
+        with tempfile.TemporaryDirectory() as folder:
+            client = FinMindClient(cache_dir=folder)
+            client.session.get = Mock()
+            client.session.get.return_value.status_code = 429
+            with self.assertRaises(ApiLimitError):
+                client.fetch('TaiwanStockPrice', '2330', '2026-01-01', '2026-10-20')
+
     def test_quota_stops_batch_and_preserves_pending_status(self):
         market = pd.DataFrame({"date": pd.bdate_range("2026-07-01", periods=60).strftime("%Y-%m-%d"), "close": 100})
         record = dict(symbol="2330", name="台積電", price_date=market.date.iloc[-1],

@@ -104,6 +104,11 @@ class ScanJob:
         if result["status"] == "running" and self.log.exists():
             lines = self.log.read_text(encoding="utf-8", errors="replace").splitlines()
             for line in reversed(lines):
+                strategy = re.search(r"策略([23]) \[(\d+)/(\d+)\]", line)
+                if strategy:
+                    number, i, total = map(int, strategy.groups())
+                    result.update(progress=round(99 * i / max(1, total)), message=f"篩選股 {number}：{i} / {total} 檔")
+                    break
                 volume = re.search(r"量能 \[(\d+)/(\d+)\]", line)
                 quotes = re.search(r"已查詢 (\d+)/(\d+) 檔", line)
                 supplement = re.search(r"富果補查 \[(\d+)/(\d+)\]", line)
@@ -130,11 +135,15 @@ class ScanJob:
             self.log.parent.mkdir(exist_ok=True)
             try:
                 with self.log.open("w", encoding="utf-8") as output:
-                    self.process = subprocess.Popen([
-                        sys.executable, "-u", str(ROOT / "filter_today_gainers.py"),
-                        "--min-change", str(params["min_change"]), "--max-change", str(params["max_change"]),
-                        "--min-volume-ratio", str(params["min_ratio"]), "--avg-volume-days", str(params["days"]),
-                    ], cwd=ROOT, stdout=output, stderr=subprocess.STDOUT)
+                    if params.get("strategy") in {"strategy2", "strategy3"}:
+                        command = [sys.executable, "-u", str(ROOT / (params["strategy"] + ".py")), "--scope", params["scope"]]
+                        if params.get("live"):
+                            command.append("--live")
+                    else:
+                        command = [sys.executable, "-u", str(ROOT / "filter_today_gainers.py"),
+                                   "--min-change", str(params["min_change"]), "--max-change", str(params["max_change"]),
+                                   "--min-volume-ratio", str(params["min_ratio"]), "--avg-volume-days", str(params["days"])]
+                    self.process = subprocess.Popen(command, cwd=ROOT, stdout=output, stderr=subprocess.STDOUT)
             except OSError:
                 self.state.update(status="error", message="無法啟動掃描程式，請確認 Python 環境。")
                 raise
@@ -171,14 +180,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def respond(self, value, status=200, content_type="application/json; charset=utf-8"):
         body = json.dumps(value, ensure_ascii=False, allow_nan=False).encode() if content_type.startswith("application/json") else value
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'")
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            return
 
     def valid_host(self):
         port = self.server.server_port
@@ -195,10 +207,35 @@ class Handler(BaseHTTPRequestHandler):
                 if not 1 <= days <= 120:
                     raise ValueError("日均量天數無效")
                 return self.respond(load_snapshot(days))
+            if parsed.path in {"/api/strategy2", "/api/strategy3"}:
+                scope = parse_qs(parsed.query).get("scope", ["top50"])[0]
+                if not isinstance(scope, str) or scope not in {"top50", "all"}:
+                    raise ValueError("掃描範圍無效")
+                strategy = parsed.path.rsplit("/", 1)[-1]
+                path = DATA / f"{strategy}_{scope}.json"
+                result = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else dict(rows=[], missing_rows=[], summary={}, available=False)
+                if strategy == "strategy3" and result.get("available"):
+                    now = datetime.now(TAIPEI)
+                    for row in result.get("rows", []):
+                        if row.get("buy_signal"):
+                            try:
+                                age = (now - datetime.fromisoformat(row.get("trade_time", ""))).total_seconds()
+                                fresh = 0 <= age <= 180
+                            except (ValueError, TypeError):
+                                fresh = False
+                            if not fresh:
+                                row.update(buy_signal=False, live_status="報價已過期")
+                    result["summary"]["buy"] = sum(bool(row.get("buy_signal")) for row in result.get("rows", []))
+                result["today"] = datetime.now(TAIPEI).date().isoformat()
+                return self.respond(result)
             if parsed.path == "/api/state":
                 return self.respond(JOB.snapshot())
             files = {"/": ("index.html", "text/html; charset=utf-8"), "/style.css": ("style.css", "text/css; charset=utf-8"),
                      "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+                     "/strategy3": ("strategy3.html", "text/html; charset=utf-8"),
+                     "/strategy3.js": ("strategy3.js", "text/javascript; charset=utf-8"),
+                     "/strategy2": ("strategy2.html", "text/html; charset=utf-8"),
+                     "/strategy2.js": ("strategy2.js", "text/javascript; charset=utf-8"),
                      "/view-model.mjs": ("view-model.mjs", "text/javascript; charset=utf-8")}
             if parsed.path in files:
                 filename, mime = files[parsed.path]
@@ -245,6 +282,16 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(self.read_body())
             if not isinstance(payload, dict):
                 raise ValueError("請求格式無效")
+            if self.path in {"/api/strategy2/scan", "/api/strategy3/scan", "/api/strategy3/live"}:
+                scope = payload.get("scope", "top50")
+                if not isinstance(scope, str) or scope not in {"top50", "all"}:
+                    raise ValueError("掃描範圍無效")
+                strategy = self.path.split("/")[2]
+                args = dict(strategy=strategy, scope=scope)
+                if self.path.endswith("/live"):
+                    args["live"] = True
+                JOB.start(args)
+                return self.respond(JOB.snapshot(), 202)
             if self.path == "/api/scan":
                 JOB.start(parameters(payload))
                 return self.respond(JOB.snapshot(), 202)

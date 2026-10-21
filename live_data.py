@@ -56,6 +56,8 @@ class FinMindClient:
                 raise ApiLimitError(f"FinMind HTTP {response.status_code}：API 額度或權限受限，請檢查 FINMIND_TOKEN／方案")
             response.raise_for_status()
             payload = response.json()
+        except ApiLimitError:
+            raise
         except requests.RequestException:
             # 不輸出 HTTP 例外原文，避免不必要的認證資訊外洩。
             raise DataError(f"{dataset} 連線失敗或逾時，請檢查網路／API 額度") from None
