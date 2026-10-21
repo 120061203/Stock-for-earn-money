@@ -1,4 +1,4 @@
-import {DEFAULTS, numericInput, validParams, filterRows, exportCSV} from '/view-model.mjs';
+import {DEFAULTS, numericInput, validParams, filterRows, exportCSV, AutoRefresh} from '/view-model.mjs';
 const $ = (id) => document.getElementById(id);
 const state = {data: {rows: [], summary: {}}, visible: [], market: 'all', sort: 'volume_ratio', direction: -1, busy: false, loading: true, error: '', notice: '', pollTimer: null, request: 0, controller: null};
 const format = (value, digits = 2) => value == null ? '—' : Number(value).toLocaleString('zh-TW', {minimumFractionDigits: digits, maximumFractionDigits: digits});
@@ -24,7 +24,7 @@ async function loadData() {
     const data = await api('/api/data?days=' + params().days, undefined, state.controller.signal);
     if (id === state.request) state.data = data;
   } catch (error) {
-    if (id === state.request && error.name !== 'AbortError') state.error = '資料載入失敗：' + error.message;
+    if (id === state.request && error.name !== 'AbortError') {stopAutoRefresh(); state.error = '資料載入失敗：' + error.message;}
   } finally {
     if (id === state.request) {state.loading = false; render();}
   }
@@ -52,8 +52,8 @@ function render() {
   $('loadingState').hidden = !state.loading;
   $('tradeDate').textContent = meta.trade_date ? meta.trade_date.replaceAll('-', ' / ') : '尚無掃描資料';
   $('updatedAt').textContent = '資料更新 ' + timeLabel(meta.completed_at || meta.fetched_at) + ' · 台灣時間';
-  $('coverage').textContent = data.available ? `已下載漲幅 ${meta.min_change}%～${meta.max_change}% 的個股量能 · ${meta.volume_average_days} 日均量 · 名單日期 ${(meta.universe_date || []).join('、') || '未知'}` : '目前尚無這個日均量期間的資料。';
-  if (meta.fugle_status) $('coverage').textContent += ` · 富果補回行情 ${meta.fugle_recovered || 0} 檔、日均量 ${meta.fugle_history_recovered || 0} 檔`;
+  $('coverage').textContent = data.available ? `漲幅 ${meta.min_change}%～${meta.max_change}% · ${meta.volume_average_days} 日均量 · 名單 ${(meta.universe_date || []).join('、') || '未知'}` : '目前尚無這個日均量期間的資料。';
+  if (meta.fugle_status) $('coverage').textContent += ` · 富果補查 ${meta.fugle_recovered || 0} / ${meta.fugle_history_recovered || 0} 檔（行情/均量）`;
   $('matchedCount').textContent = state.loading ? '—' : visible.length;
   $('avgRatio').textContent = visible.length ? format(visible.reduce((sum, row) => sum + row.volume_ratio, 0) / visible.length) : '—';
   $('validCount').textContent = meta.valid_today == null ? '—' : format(meta.valid_today, 0);
@@ -62,8 +62,8 @@ function render() {
   $('unknownCount').textContent = data.available ? unknown : '—';
   $('unknownNote').textContent = data.available ? `行情缺漏 ${meta.missing || 0} · 量能未確認 ${meta.volume_unknown || 0}` : '缺報價或量能未完成檢查';
   $('resultPill').textContent = state.visible.length;
-  $('resultDescription').textContent = validParams(p) ? `漲幅 ${p.min_change}%～${p.max_change}% · 量能 ≥ ${p.min_ratio} 倍 · 點選查看詳情` : '請先完整填寫篩選條件';
-  $('tableCount').textContent = state.loading ? '正在載入對應期間資料…' : `顯示 ${state.visible.length} / ${matched.length} 檔符合個股`;
+  $('resultDescription').textContent = validParams(p) ? `漲幅 ${p.min_change}%～${p.max_change}% · 量比 ≥ ${p.min_ratio} 倍` : '請先完整填寫篩選條件';
+  $('tableCount').textContent = state.loading ? '載入中…' : `${state.visible.length} / ${matched.length} 檔`;
   $('download').disabled = state.loading || !state.visible.length;
   $('emptyState').hidden = state.loading || state.visible.length > 0;
   $('emptyText').textContent = search ? '沒有符合搜尋的個股，試著輸入其他代號或名稱。' : !data.available ? '請按「更新行情」，取得這個期間的量能資料。' : '試著調整篩選條件，或更新行情。未確認的量能不會列入結果。';
@@ -94,20 +94,46 @@ function detail(row) {
   for (const [label, value] of [['成交價', format(row.price)], ['當日漲幅', '+' + format(row.change_percent) + '%'], ['今日累計量（張）', format(row.today_volume_shares / 1000, 0)], ['歷史日均量（張）', format(row.avg_daily_volume_shares / 1000, 1)], ['量能倍數', format(row.volume_ratio) + ' 倍'], ['最後成交', row.trade_time || '未知']]) {
     const item = document.createElement('div'); item.className = 'detail-item'; const title = document.createElement('span'); title.textContent = label; const valueNode = document.createElement('strong'); valueNode.textContent = value; item.append(title, valueNode); grid.append(item);
   }
-  const note = document.createElement('p'); note.className = 'detail-note'; note.textContent = `成交日期 ${row.trade_date}。日均量期間 ${row.volume_average_start} ～ ${row.volume_average_end}，共 ${row.volume_average_days} 個交易日，不含今天。來源：${row.source || '未知'} / ${row.volume_history_source || '未知'}。這是量價條件篩選，尚未套用策略評分。`;
+  const note = document.createElement('p'); note.className = 'detail-note'; note.textContent = `成交日期 ${row.trade_date}。日均量期間 ${row.volume_average_start} ～ ${row.volume_average_end}，共 ${row.volume_average_days} 個交易日，不含今天。來源：${row.source || '未知'} / ${row.volume_history_source || '未知'}。`;
   content.append(grid, note); $('detailDialog').showModal();
 }
 function setBusy(busy) {
+  const wasBusy = state.busy;
   state.busy = busy;
+  if (wasBusy && !busy) autoRefresh.defer();
   for (const id of ['scan', 'minChange', 'maxChange', 'minRatio', 'averageDays', 'reset']) $(id).disabled = busy;
-  $('scanText').textContent = busy ? '更新行情中…' : '更新行情並篩選';
+  $('scanText').textContent = busy ? '更新中…' : '更新行情';
   $('scanIcon').classList.toggle('spinning', busy); $('scanProgress').hidden = !busy;
+}
+async function startScan() {
+  if (state.busy || state.loading) return;
+  const p = params();
+  if (!validParams(p)) throw new Error('請先填寫有效的篩選條件，再更新行情。');
+  state.error = ''; state.notice = ''; setBusy(true); message('');
+  try {
+    const job = await api('/api/state');
+    if (job.status !== 'running') await api('/api/scan', p);
+    poll();
+  }
+  catch (error) {setBusy(false); throw error;}
+}
+const autoRefresh = new AutoRefresh(startScan, {onError(error) {
+  $('autoRefresh').checked = false; state.error = '自動更新已停止：' + error.message; render(); updateRefreshStatus();
+}});
+function stopAutoRefresh() {autoRefresh.disable(); $('autoRefresh').checked = false; updateRefreshStatus();}
+function updateRefreshStatus() {
+  $('refreshInterval').disabled = autoRefresh.enabled;
+  $('refreshStatus').textContent = !autoRefresh.enabled ? '自動更新已關閉' : document.hidden ? '背景暫停，回到頁面後恢復' : state.busy || autoRefresh.pending ? '更新中，完成後重新倒數' : state.loading ? '正在載入資料…' : `${autoRefresh.seconds()} 秒後更新`;
+}
+async function refreshTick() {
+  await autoRefresh.tick({blocked: state.busy || state.loading, paused: document.hidden});
+  updateRefreshStatus();
 }
 async function poll() {
   clearTimeout(state.pollTimer);
   try {
     const job = await api('/api/state');
-    if (job.status === 'running' && !state.busy && job.params) {
+    if (job.status === 'running' && !state.busy && job.params && !['strategy2','strategy3'].includes(job.params.strategy)) {
       $('minChange').value = job.params.min_change; $('maxChange').value = job.params.max_change;
       $('minRatio').value = job.params.min_ratio; $('averageDays').value = job.params.days;
     }
@@ -116,21 +142,30 @@ async function poll() {
     if (job.status === 'running') { state.pollTimer = setTimeout(poll, 1200); }
     else if (job.status === 'complete') { await loadData(); }
     else if (['error', 'cancelled'].includes(job.status)) {
+      stopAutoRefresh();
       if (job.status === 'error') state.error = job.message; else state.notice = job.message;
       render();
     }
-  } catch (error) { setBusy(false); state.error = '無法連線本機 App，請確認 app.py 仍在執行。'; render(); }
+  } catch (error) { stopAutoRefresh(); setBusy(false); state.error = '無法連線本機 App，請確認 app.py 仍在執行。'; render(); }
 }
 $('filters').addEventListener('submit', async event => {
   event.preventDefault(); if (state.busy || !$('filters').reportValidity()) return;
-  const p = params(); if (p.min_change > p.max_change) return message('最低漲幅不可大於最高漲幅。', true);
-  if (!validParams(p)) return;
-  try {state.error = ''; state.notice = ''; setBusy(true); message(''); await api('/api/scan', p); poll();} catch (error) {setBusy(false); state.error = error.message; render();}
+  try {await startScan();} catch (error) {stopAutoRefresh(); state.error = error.message; render();}
 });
-$('stopScan').addEventListener('click', async () => { try {await api('/api/scan/stop', {}); $('progressText').textContent = '正在停止更新…';} catch (error) {message(error.message, true);} });
+$('autoRefresh').addEventListener('change', () => {
+  if (!$('autoRefresh').checked) return stopAutoRefresh();
+  if (!validParams(params())) {stopAutoRefresh(); state.error = '請先填寫有效篩選條件。'; render(); return;}
+  autoRefresh.intervalMs = Number($('refreshInterval').value) * 1000;
+  autoRefresh.enable(); refreshTick();
+});
+$('stopScan').addEventListener('click', async () => { stopAutoRefresh(); try {await api('/api/scan/stop', {}); $('progressText').textContent = '正在停止更新…';} catch (error) {message(error.message, true);} });
+setInterval(refreshTick, 1000);
+document.addEventListener('visibilitychange', refreshTick);
+window.addEventListener('pagehide', stopAutoRefresh);
 for (const id of ['minChange', 'maxChange', 'minRatio', 'search']) $(id).addEventListener('input', render);
 $('averageDays').addEventListener('change', loadData);
 $('reset').addEventListener('click', () => {
+  stopAutoRefresh();
   $('minChange').value = DEFAULTS.min_change; $('maxChange').value = DEFAULTS.max_change;
   $('minRatio').value = DEFAULTS.min_ratio; $('averageDays').value = DEFAULTS.days; $('search').value = '';
   state.market = 'all'; state.sort = 'volume_ratio'; state.direction = -1; state.notice = '';
@@ -160,4 +195,4 @@ $('download').addEventListener('click', () => {
   link.download = `台股量價_${state.data.summary.trade_date || '篩選結果'}_${p.min_change}-${p.max_change}pct_${p.min_ratio}x.csv`;
   document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
-loadData(); poll();
+loadData(); poll(); updateRefreshStatus();

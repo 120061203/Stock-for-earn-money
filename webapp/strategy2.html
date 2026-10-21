@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>篩選股 2｜跌深反彈</title><link rel="stylesheet" href="/style.css"><script src="/strategy2.js" type="module"></script></head>
+<body>
+<aside class="sidebar">
+<a class="brand" href="/" aria-label="台股量價首頁"><span class="brand-icon">▥</span><span>台股量價<small>STOCK SCREENER</small></span></a>
+<div class="nav-label">選股策略</div><nav aria-label="選股策略"><a href="/" class="nav-item"><span class="nav-number">01</span>量價篩選</a><a href="/strategy2" class="nav-item active" aria-current="page"><span class="nav-number">02</span>跌深反彈</a><a href="/strategy3" class="nav-item"><span class="nav-number">03</span>強勢拉回</a></nav>
+<div class="sidebar-bottom"><span class="dot"></span>本機選股<p>TWSE · Fugle · FinMind</p></div></aside>
+<main class="strategy-two">
+<header class="topbar"><div class="breadcrumb">台股<span>/</span>跌深反彈</div><div class="local-badge">本機</div></header>
+<section class="hero"><div><h1>跌深反彈</h1></div><div class="hero-date"><span id="s2Date">尚無掃描資料</span><small id="s2Updated">使用已完成日 K</small></div></section>
+<div id="s2Message" class="message" role="status" hidden></div>
+<section class="filter-card" aria-labelledby="s2Title"><div class="section-heading"><h2 id="s2Title">策略條件</h2><span class="market-tag">篩選股 2</span></div>
+<details class="strategy-rules"><summary>四組條件 · 17分<span>查看條件</span></summary><div class="strategy-steps">
+<article><span>01 / 超賣（任一）</span><h3>觀察乖離與RSI</h3><p>乖離20 ≤ −8%<br>乖離60 ≤ −12%<br>RSI(14) ≤ 30</p></article>
+<article><span>02 / 反轉（任一）</span><h3>短線站回均線</h3><p>低檔KD黃金交叉<br>收盤 &gt; MA5<br>收盤 &gt; MA10</p></article>
+<article><span>03 / 止跌（任一）</span><h3>量價型態改善</h3><p>前日爆量、當日量縮<br>長下影線<br>最低價高於前日</p></article>
+<article><span>04 / 籌碼（任一）</span><h3>資金壓力改善</h3><p>融資較5交易日前下降<br>外資轉買超<br>投信轉買超</p></article></div></details>
+<form id="s2Form" class="strategy-controls"><div class="field"><label for="s2Scope">掃描範圍</label><div class="select-wrap"><select id="s2Scope"><option value="top50">市值前 50 名</option><option value="all">全部上市櫃普通股</option></select></div></div><button class="primary-button" id="s2Scan" type="submit">更新日線</button><button class="secondary-button" id="s2Stop" type="button" hidden>停止</button></form>
+<div class="filter-footer"><span id="s2Coverage">盤後日線策略，16:30 前查至前一天；籌碼需另等盤後資料齊備。量比＝訊號日成交股數 ÷ 前 20 個交易日日均量（不含訊號日）。</span></div>
+<div class="scan-progress" id="s2Progress" hidden><span id="s2ProgressText">準備更新…</span><progress id="s2ProgressBar" max="100" value="0" aria-label="策略2掃描進度"></progress></div></section>
+<section class="metrics" aria-label="策略掃描摘要"><article class="metric"><span>反彈候選</span><div><strong id="s2Buy">—</strong><small>檔</small></div><p>四大群組均成立</p></article><article class="metric"><span>已掃描</span><div><strong id="s2Scanned">—</strong><small>檔</small></div><p id="s2Universe">待選擇掃描範圍</p></article><article class="metric"><span>超賣觀察</span><div><strong id="s2Watch">—</strong><small>檔</small></div><p>已超賣、仍待確認</p></article><article class="metric"><span>待確認</span><div><strong id="s2Missing">—</strong><small>檔</small></div><p>含部分評分或 API 受限</p></article></section>
+<section class="results-card"><div class="results-header"><div><h2>策略結果</h2><p>依評分排序</p></div><button class="secondary-button" id="s2Download" disabled>匯出 CSV</button></div><div class="toolbar"><div class="field"><label for="s2Status">顯示狀態</label><select id="s2Status"><option value="all">全部結果</option><option value="候選">反彈候選</option><option value="超賣觀察">超賣觀察</option><option value="籌碼待確認">籌碼待確認</option></select></div><div class="search"><span>⌕</span><input id="s2Search" type="search" placeholder="代號 / 名稱" aria-label="搜尋股票"></div></div>
+<div class="table-wrap"><table class="strategy-table"><thead><tr><th>股票</th><th>評分 ↓</th><th>狀態</th><th>訊號日期</th><th>收盤</th><th>RSI14</th><th>量比</th><th>K / D</th></tr></thead><tbody id="s2Rows"></tbody></table></div><div class="empty-state" id="s2Empty"><h3>無符合個股</h3><p>更新日線，或調整顯示條件。</p></div><div class="table-footer"><span id="s2Count">尚無結果</span><span>條件訊號 · 不自動下單</span></div></section>
+<details class="filter-card strategy-explanation"><summary>計算方式與資料說明</summary><div class="explanation-body"><h2>17分評分方式</h2><p>乖離20 ≤−8% 加2分；乖離60 ≤−12% 加1分；RSI ≤30 加2分；低檔KD金叉加2分；收盤高於MA5、MA10各加1分；長下影、恐慌後量縮、低點抬高各加1分；融資下降加1分；外資轉買、投信轉買各加2分。總分用於排序，未設定最低分數門檻。</p><h2>候選與指標定義</h2><p>超賣、反轉、止跌、籌碼四大群組須同時成立，每組內任一條件成立即可。KD使用9日RSV，K與D平滑係數1/3、初始值50；9日高低相等時RSV定為50。低檔金叉為前日K≤D、當日K&gt;D，且當日K、D均&lt;25。</p><p>長下影為 min(開盤,收盤)−最低價 &gt; 實體長度×1.5；前日爆量為前日量 &gt; 不含訊號日的20日均量×1.8，且當日量低於前日量。融資比較同檔前5個交易日；外資、投信轉買為當日淨買超&gt;0、前日≤0。外資採不含外資自營商分類。</p><p>籌碼與股價日期必須一致，盤後資料尚未發布、缺漏或來源受限時標為待確認。部分分數只加總已確認項目，缺失項目不視為0；若已有任一籌碼改善分支成立，仍可確認籌碼群組。最高可能分數與缺失原因可在詳情查看。日線為未還原價格；除權息可能影響乖離及KD。本策略不使用ROE或營收門檻。</p><details><summary>查看資料缺失原因</summary><div id="s2Errors"></div></details></div></details>
+</main><dialog id="s2Dialog"><div class="dialog-header"><h2 id="s2DetailTitle">條件詳情</h2><button id="s2Close" class="close-dialog" aria-label="關閉詳情">×</button></div><div class="help-content" id="s2Detail"></div></dialog>
+</body></html>

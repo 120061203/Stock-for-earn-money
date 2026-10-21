@@ -28,8 +28,27 @@ export function filterRows(rows, p, market = 'all', search = '', sort = 'volume_
   return {matched, visible};
 }
 export const CSV_FIELDS = ['symbol', 'name', 'market', 'price', 'change_percent', 'today_volume_shares', 'avg_daily_volume_shares', 'volume_ratio', 'trade_date', 'trade_time', 'volume_average_days', 'volume_average_start', 'volume_average_end', 'source', 'volume_history_source'];
-export function exportCSV(rows) {
+export function exportCSV(rows, fields = CSV_FIELDS) {
   const escape = value => '"' + String(value ?? '').replaceAll('"', '""') + '"';
-  return '\uFEFF' + [CSV_FIELDS, ...rows.map(row => CSV_FIELDS.map(field => row[field]))]
+  return '\uFEFF' + [fields, ...rows.map(row => fields.map(field => row[field]))]
     .map(row => row.map(escape).join(',')).join('\r\n');
+}
+
+// 計時和掃描狀態分離，避免 API 回應慢或背景分頁恢復時重複送出。
+export class AutoRefresh {
+  constructor(run, {intervalMs = 60000, now = Date.now, onError = () => {}} = {}) {
+    this.run = run; this.intervalMs = intervalMs; this.now = now; this.onError = onError;
+    this.enabled = false; this.pending = false; this.due = 0;
+  }
+  enable() {this.enabled = true; this.due = this.now();}
+  disable() {this.enabled = false;}
+  defer() {this.due = this.now() + this.intervalMs;}
+  seconds() {return Math.max(0, Math.ceil((this.due - this.now()) / 1000));}
+  async tick({blocked = false, paused = false} = {}) {
+    if (!this.enabled || this.pending || blocked || paused || this.now() < this.due) return false;
+    this.pending = true;
+    try {await this.run(); return true;}
+    catch (error) {this.disable(); this.onError(error); return false;}
+    finally {this.pending = false; this.defer();}
+  }
 }

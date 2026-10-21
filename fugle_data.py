@@ -53,13 +53,14 @@ class FugleClient:
             raise ValueError("富果報價股票代號不符或格式錯誤")
         return payload
 
-    def candles(self, symbol, start, end):
+    def candles(self, symbol, start, end, include_ohlc=False):
         if not symbol.isdigit() or not 1 <= len(symbol) <= 6:
             raise ValueError("富果查詢需使用純數字台股代號")
         first, last = date.fromisoformat(start), date.fromisoformat(end)
         if not 0 <= (last - first).days <= 364:
             raise ValueError("富果單次查詢區間須小於一年（本程式最多 364 天）")
-        path = self.cache_dir / f"daily_unadjusted_{symbol}_{start}_{end}.json"
+        prefix = "daily_ohlc_unadjusted" if include_ohlc else "daily_unadjusted"
+        path = self.cache_dir / f"{prefix}_{symbol}_{start}_{end}.json"
         payload = None
         if not self.refresh and path.exists() and time() - path.stat().st_mtime < 21600:
             try:
@@ -73,7 +74,7 @@ class FugleClient:
                 response = self.session.get(
                     f"{API_URL}/historical/candles/{symbol}",
                     params={"from": start, "to": end, "timeframe": "D", "adjusted": "false",
-                            "fields": "close,volume", "sort": "asc"},
+                            "fields": "open,high,low,close,volume" if include_ohlc else "close,volume", "sort": "asc"},
                     timeout=(5, 20),
                 )
                 errors = {
@@ -92,14 +93,14 @@ class FugleClient:
                 raise ValueError("富果回應不是有效 JSON。") from None
             except requests.RequestException:
                 raise ValueError("富果連線失敗或逾時，請檢查網路與服務狀態。") from None
-        frame = self.normalize(payload, symbol, first, last)
+        frame = self.normalize(payload, symbol, first, last, include_ohlc=include_ohlc)
         if downloaded:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         return frame
 
     @staticmethod
-    def normalize(payload, symbol, first, last):
+    def normalize(payload, symbol, first, last, include_ohlc=False):
         if not isinstance(payload, dict) or payload.get("symbol") != symbol or payload.get("timeframe") != "D":
             raise ValueError("富果回應的股票代號或 K 線週期不符。")
         if payload.get("adjusted") not in (None, False):
@@ -120,4 +121,16 @@ class FugleClient:
             if not frame[column].map(lambda x: math.isfinite(x) and (x > 0 if column == "close" else x >= 0 and x == int(x))).all():
                 raise ValueError(f"富果日線 {column} 數值無效。")
         frame["symbol"] = symbol
-        return frame[["symbol", "date", "close", "volume"]].sort_values("date").reset_index(drop=True)
+        columns = ["symbol", "date", "close", "volume"]
+        if include_ohlc:
+            for column in ("open", "high", "low"):
+                if column not in frame:
+                    raise ValueError("富果日線缺少完整 OHLC")
+                frame[column] = pd.to_numeric(frame[column], errors="raise")
+                if not frame[column].map(lambda x: math.isfinite(x) and x > 0).all():
+                    raise ValueError("富果 OHLC 數值無效")
+                columns.append(column)
+            if ((frame.high < frame[["open", "close", "low"]].max(axis=1)) |
+                    (frame.low > frame[["open", "close", "high"]].min(axis=1))).any():
+                raise ValueError("富果 OHLC 高低價矛盾")
+        return frame[columns].sort_values("date").reset_index(drop=True)
