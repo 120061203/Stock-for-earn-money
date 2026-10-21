@@ -18,6 +18,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
+import r2_store
+
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "webapp"
@@ -148,6 +150,9 @@ class ScanJob:
             else:
                 self.state.update(status="error", message="本次更新失敗，已保留上次資料。請確認網路、API 額度或本機掃描紀錄。", progress=0)
             self.process = None
+        if code == 0 and not self.cancelled:
+            # 容器睡眠重啟後本機磁碟會清空，掃描結果另外備份到 R2 才能在下次醒來時復原。
+            r2_store.sync_up_all(DATA)
 
     def stop(self):
         with self.lock:

@@ -46,11 +46,15 @@
   ],
 
   // 非機密設定值，要跟上面的自訂網域一致，否則 app.py 的 Host/Origin 白名單會把請求擋掉。
+  // R2_ACCOUNT_ID／R2_BUCKET 不是機密，可以直接寫在這裡；換成你實際的帳號 ID 與 bucket 名稱。
+  // 不設定這兩個值時，R2 持久化功能自動停用（不影響其他功能）。
   "vars": {
     "ALLOWED_HOSTS": "stock.xsong.us",
-    "ALLOWED_ORIGINS": "https://stock.xsong.us"
+    "ALLOWED_ORIGINS": "https://stock.xsong.us",
+    "R2_ACCOUNT_ID": "<你的 Cloudflare Account ID>",
+    "R2_BUCKET": "stock-screen-app-data"
   }
 
-  // 機密值（FUGLE_API_KEY、FINMIND_TOKEN）不要寫在這個檔案裡，
-  // 用 `wrangler secret put FUGLE_API_KEY` 等指令個別設定。
+  // 機密值（FUGLE_API_KEY、FINMIND_TOKEN、R2_ACCESS_KEY_ID、R2_SECRET_ACCESS_KEY）
+  // 不要寫在這個檔案裡，用 `wrangler secret put <名稱>` 或 Dashboard 的 Secret 個別設定。
 }

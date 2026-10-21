@@ -7,6 +7,10 @@ interface Env {
   MARKET_DATA_PROVIDER?: string;
   ALLOWED_HOSTS?: string;
   ALLOWED_ORIGINS?: string;
+  R2_ACCOUNT_ID?: string;
+  R2_ACCESS_KEY_ID?: string;
+  R2_SECRET_ACCESS_KEY?: string;
+  R2_BUCKET?: string;
 }
 
 export class StockScreenContainer extends Container<Env> {
@@ -23,6 +27,11 @@ export class StockScreenContainer extends Container<Env> {
     MARKET_DATA_PROVIDER: this.env.MARKET_DATA_PROVIDER ?? "fugle",
     ALLOWED_HOSTS: this.env.ALLOWED_HOSTS ?? "",
     ALLOWED_ORIGINS: this.env.ALLOWED_ORIGINS ?? "",
+    // R2 持久化：容器睡眠重啟後用來復原股票名單與最近一次掃描結果，選用。
+    R2_ACCOUNT_ID: this.env.R2_ACCOUNT_ID ?? "",
+    R2_ACCESS_KEY_ID: this.env.R2_ACCESS_KEY_ID ?? "",
+    R2_SECRET_ACCESS_KEY: this.env.R2_SECRET_ACCESS_KEY ?? "",
+    R2_BUCKET: this.env.R2_BUCKET ?? "",
   };
 }
 
