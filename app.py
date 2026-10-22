@@ -11,6 +11,8 @@ import re
 import subprocess
 import sys
 import threading
+
+from scan_errors import read_failure
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -71,6 +73,13 @@ def load_snapshot(days=20, data_dir=DATA):
         row["volume_pass"] = row.get("volume_pass") == "True"
     metadata = path.with_name(path.name.replace(".checked.csv", ".json"))
     summary = json.loads(metadata.read_text(encoding="utf-8")) if metadata.is_file() else {}
+    used_fugle = bool(summary.get("fugle_calls")) or any(
+        "fugle" in str(row.get(field, "")).lower()
+        for row in rows for field in ("source", "volume_history_source"))
+    if used_fugle:
+        return dict(rows=[], missing_rows=[], summary={}, available=False,
+                    today=datetime.now(TAIPEI).date().isoformat(),
+                    message="資料來源已改為 TWSE MIS／FinMind，請更新行情以重新篩選。")
     summary.update(trade_date=match[1], min_change=float(match[2]), max_change=float(match[3]),
                    volume_average_days=int(match[5]))
     missing_path = data_dir / f"gainers_{match[1]}_{match[2]}_{match[3]}.missing.csv"
@@ -150,7 +159,11 @@ class ScanJob:
             elif code == 0:
                 self.state.update(status="complete", message="更新完成", progress=100)
             else:
-                self.state.update(status="error", message="本次更新失敗，已保留上次資料。請確認網路、API 額度或本機掃描紀錄。", progress=0)
+                failure = read_failure(self.log)
+                if failure:
+                    self.state.update(status="error", progress=0, **failure)
+                else:
+                    self.state.update(status="error", message="掃描程式執行失敗，請查看執行環境的掃描紀錄；上次結果未受影響。", progress=0)
             self.process = None
 
     def stop(self):
