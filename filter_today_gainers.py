@@ -7,6 +7,7 @@
 import argparse
 import json
 import math
+import sys
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -16,10 +17,72 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import requests
 
+from scan_errors import ScanFailure, emit_failure
+
 
 ROOT = Path(__file__).resolve().parent
 TAIPEI = ZoneInfo("Asia/Taipei")
 API_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
+
+
+def load_universe():
+    """全新部署不含 data/，首次掃描自行建立普通股名單。"""
+    path = ROOT / 'data' / 'all_listed_stocks.csv'
+    if not path.is_file():
+        print('首次掃描：下載上市櫃普通股名單…', flush=True)
+        from market_universe import top_market_cap
+        try:
+            universe = top_market_cap(count=None)
+        except requests.RequestException:
+            raise ScanFailure('UNIVERSE_DOWNLOAD') from None
+        except OSError:
+            raise ScanFailure('DATA_DIRECTORY') from None
+        except (ValueError, KeyError, TypeError):
+            raise ScanFailure('UNIVERSE_DOWNLOAD') from None
+    else:
+        try:
+            universe = pd.read_csv(path, dtype={'symbol': str})
+        except (ValueError, pd.errors.EmptyDataError):
+            raise ScanFailure('UNIVERSE_INVALID') from None
+        except OSError:
+            raise ScanFailure('DATA_DIRECTORY') from None
+    required = {'symbol', 'name', 'market', 'market_cap_date'}
+    if universe.empty or not required <= set(universe):
+        raise ScanFailure('UNIVERSE_INVALID')
+    universe = universe.copy()
+    if universe[list(required)].isna().any().any():
+        raise ScanFailure('UNIVERSE_INVALID')
+    universe['symbol'] = universe.symbol.astype(str)
+    if universe.symbol.duplicated().any() or not universe.symbol.str.fullmatch(r'[0-9]{4}').all() or not universe.market.isin(['TWSE', 'TPEx']).all():
+        raise ScanFailure('UNIVERSE_INVALID')
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.is_file():
+            universe.to_csv(path, index=False, encoding='utf-8-sig')
+    except OSError:
+        raise ScanFailure('DATA_DIRECTORY') from None
+    return universe
+
+
+def fetch_mis(session, channels):
+    try:
+        response = session.get(API_URL, params={'ex_ch': channels, 'json': '1', 'delay': '0'}, timeout=(5, 20))
+        if response.status_code != 200:
+            raise ScanFailure('MIS_HTTP', response.status_code)
+        payload = response.json()
+    except requests.Timeout:
+        raise ScanFailure('MIS_TIMEOUT') from None
+    except requests.exceptions.JSONDecodeError:
+        raise ScanFailure('MIS_RESPONSE') from None
+    except requests.RequestException:
+        raise ScanFailure('MIS_CONNECTION') from None
+    except ScanFailure:
+        raise
+    except ValueError:
+        raise ScanFailure('MIS_RESPONSE') from None
+    if not isinstance(payload, dict) or payload.get('rtcode') != '0000' or not isinstance(payload.get('msgArray'), list):
+        raise ScanFailure('MIS_RESPONSE')
+    return payload
 
 
 def average_volume(history, today, days=20):
@@ -41,7 +104,7 @@ def average_volume(history, today, days=20):
     return average, frame.date.iloc[0].strftime("%Y-%m-%d"), frame.date.iloc[-1].strftime("%Y-%m-%d")
 
 
-def filter_volume(quotes, today, days, minimum_ratio, supplement=None):
+def filter_volume(quotes, today, days, minimum_ratio):
     from live_data import FinMindClient
     from api_errors import ApiLimitError
     client = FinMindClient()
@@ -57,30 +120,17 @@ def filter_volume(quotes, today, days, minimum_ratio, supplement=None):
             current = quote.get("today_volume_shares")
             if current is None or not math.isfinite(current) or current < 0:
                 raise ValueError("缺少今日累計成交量")
-            try:
-                if stopped:
-                    raise ValueError("FinMind API 額度受限")
-                history = client.fetch("TaiwanStockPrice", quote["symbol"], start, end)
-                average, first, last = average_volume(history, today, days)
-                if (datetime.fromisoformat(today) - datetime.fromisoformat(last)).days > 10:
-                    raise ValueError("FinMind 日均量資料過舊")
-            except (ValueError, KeyError, TypeError) as primary_error:
-                if isinstance(primary_error, ApiLimitError):
-                    stopped = True
-                if supplement is None:
-                    raise
-                print(f"  富果補查日均量：{quote['symbol']}", flush=True)
-                history = supplement.history(quote["symbol"], start, end)
-                average, first, last = average_volume(history, today, days)
-                result["volume_history_source"] = "Fugle"
+            if stopped:
+                raise ValueError("FinMind API 額度受限，本次尚未檢查")
+            history = client.fetch("TaiwanStockPrice", quote["symbol"], start, end)
+            average, first, last = average_volume(history, today, days)
             if (datetime.fromisoformat(today) - datetime.fromisoformat(last)).days > 10:
                 raise ValueError("日均量資料距今超過 10 日")
-            if result["volume_history_source"] == "Fugle":
-                supplement.history_recovered += 1
             ratio = current / average
             result.update(avg_daily_volume_shares=average, volume_ratio=ratio, volume_pass=ratio >= minimum_ratio,
                           volume_average_start=first, volume_average_end=last, volume_status="已檢查")
         except ApiLimitError as exc:
+            stopped = True
             result.update(volume_status="額度受限", volume_error=str(exc))
         except (ValueError, KeyError, TypeError) as exc:
             result.update(volume_status="資料不足" if not stopped else "尚未檢查", volume_error=str(exc))
@@ -127,7 +177,7 @@ def main():
     if not math.isfinite(args.min_volume_ratio) or args.min_volume_ratio <= 0 or args.avg_volume_days < 1:
         parser.error("量能倍數與日均量天數須為正數")
     today = datetime.now(TAIPEI).date().isoformat()
-    universe = pd.read_csv(ROOT / "data/all_listed_stocks.csv", dtype={"symbol": str})
+    universe = load_universe()
     session = requests.Session()
     session.headers["User-Agent"] = "Mozilla/5.0"
     seen, valid, missing, selected = set(), [], [], []
@@ -136,11 +186,7 @@ def main():
     for offset in range(0, len(records), 80):
         batch = records[offset:offset + 80]
         channels = "|".join(f"{'tse' if row['market'] == 'TWSE' else 'otc'}_{row['symbol']}.tw" for row in batch)
-        response = session.get(API_URL, params={"ex_ch": channels, "json": "1", "delay": "0"}, timeout=(5, 20))
-        response.raise_for_status()
-        payload = response.json()
-        if payload.get("rtcode") != "0000":
-            raise ValueError("證交所 MIS 查詢未成功，未產生新的篩選結果")
+        payload = fetch_mis(session, channels)
         for row in payload.get("msgArray", []):
             symbol = row.get("c")
             if symbol not in allowed_symbols or symbol in seen:
@@ -156,22 +202,21 @@ def main():
         print(f"已查詢 {min(offset + 80, len(records))}/{len(records)} 檔", flush=True)
         sleep(0.15)
     missing.extend(dict(symbol=symbol, reason="API 未回傳") for symbol in set(universe.symbol) - seen)
-    from quote_fallback import FugleSupplement, repair_quotes
-    supplement = FugleSupplement()
-    missing_before = len(missing)
-    valid, missing = repair_quotes(valid, missing, today, supplement)
+    if not valid:
+        raise ScanFailure('NO_TODAY_QUOTES')
     selected = [quote for quote in valid if args.min_change <= quote["change_percent"] <= args.max_change]
     selected.sort(key=lambda row: (-row["change_percent"], row["symbol"]))
     columns = ["symbol", "name", "market", "price", "reference_price", "change_percent", "trade_date", "trade_time", "source",
                "today_volume_shares", "today_volume_source"]
     output = ROOT / "data" / f"gainers_{today}_{args.min_change:g}_{args.max_change:g}.csv"
     pd.DataFrame(selected, columns=columns).to_csv(output, index=False, encoding="utf-8-sig")
-    pd.DataFrame(missing, columns=["symbol", "reason", "fugle_error"]).to_csv(output.with_suffix(".missing.csv"), index=False, encoding="utf-8-sig")
+    pd.DataFrame(missing, columns=["symbol", "reason"]).to_csv(output.with_suffix(".missing.csv"), index=False, encoding="utf-8-sig")
     summary = dict(trade_date=today, fetched_at=datetime.now(TAIPEI).isoformat(), universe=len(records), valid_today=len(valid),
-                   selected=len(selected), missing=len(missing), missing_before_fugle=missing_before,
-                   universe_date=sorted(universe.market_cap_date.dropna().unique().tolist()), **supplement.summary())
+                   selected=len(selected), missing=len(missing), quote_source="TWSE MIS", history_source="FinMind",
+                   provider_policy="mis_finmind_only",
+                   universe_date=sorted(universe.market_cap_date.dropna().unique().tolist()))
     output.with_suffix(".json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    checked = filter_volume(selected, today, args.avg_volume_days, args.min_volume_ratio, supplement=supplement)
+    checked = filter_volume(selected, today, args.avg_volume_days, args.min_volume_ratio)
     matched = [row for row in checked if row["volume_pass"]]
     matched.sort(key=lambda row: (-row["volume_ratio"], -row["change_percent"], row["symbol"]))
     volume_columns = columns + ["volume_average_days", "avg_daily_volume_shares", "volume_ratio", "volume_pass",
@@ -184,7 +229,6 @@ def main():
                    volume_unknown=sum(row["volume_status"] != "已檢查" for row in checked),
                    volume_comparison="今日整股累計量 / 前N個交易日日均成交股數；不推估全日量",
                    completed_at=datetime.now(TAIPEI).isoformat())
-    summary.update(supplement.summary())
     volume_output.with_suffix(".json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(pd.DataFrame(matched, columns=volume_columns).to_string(index=False))
     print(json.dumps(summary, ensure_ascii=False))
@@ -192,4 +236,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except ScanFailure as exc:
+        emit_failure(exc)
+        sys.exit(1)
+    except OSError:
+        emit_failure(ScanFailure('DATA_DIRECTORY'))
+        sys.exit(1)

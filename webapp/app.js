@@ -40,7 +40,7 @@ function render() {
   }
   const issues = [];
   if (!validParams(p)) issues.push('請填寫有效條件：漲幅 0%～10%、量能 0.1～50 倍，且漲幅下限不得超過上限。');
-  if (!data.available && !state.loading) issues.push(data.message || '尚無資料，請更新行情。');
+  if (!data.available && !state.loading && !state.error) issues.push(data.message || '尚無資料，請更新行情。');
   if (data.available && meta.trade_date !== data.today) issues.push(`目前顯示 ${meta.trade_date} 的歷史掃描，尚未取得今天資料。`);
   if (data.available && (p.min_change < meta.min_change || p.max_change > meta.max_change)) issues.push(`已下載資料只涵蓋漲幅 ${meta.min_change}%～${meta.max_change}%；完整套用新範圍請按「更新行情」。`);
   message([state.error, state.notice, ...issues].filter(Boolean).join(' '), Boolean(state.error));
@@ -53,7 +53,6 @@ function render() {
   $('tradeDate').textContent = meta.trade_date ? meta.trade_date.replaceAll('-', ' / ') : '尚無掃描資料';
   $('updatedAt').textContent = '資料更新 ' + timeLabel(meta.completed_at || meta.fetched_at) + ' · 台灣時間';
   $('coverage').textContent = data.available ? `漲幅 ${meta.min_change}%～${meta.max_change}% · ${meta.volume_average_days} 日均量 · 名單 ${(meta.universe_date || []).join('、') || '未知'}` : '目前尚無這個日均量期間的資料。';
-  if (meta.fugle_status) $('coverage').textContent += ` · 富果補查 ${meta.fugle_recovered || 0} / ${meta.fugle_history_recovered || 0} 檔（行情/均量）`;
   $('matchedCount').textContent = state.loading ? '—' : visible.length;
   $('avgRatio').textContent = visible.length ? format(visible.reduce((sum, row) => sum + row.volume_ratio, 0) / visible.length) : '—';
   $('validCount').textContent = meta.valid_today == null ? '—' : format(meta.valid_today, 0);
@@ -179,10 +178,10 @@ for (const button of document.querySelectorAll('[data-market]')) button.addEvent
 for (const button of document.querySelectorAll('[data-sort]')) button.addEventListener('click', () => {const key = button.dataset.sort; state.direction = state.sort === key ? state.direction * -1 : -1; state.sort = key; render();});
 $('showMissing').addEventListener('click', () => {
   const content = $('missingContent'); content.replaceChildren();
-  const status = document.createElement('p'); status.textContent = '富果：' + (state.data.summary.fugle_status || '尚未執行補查'); content.append(status);
+  const status = document.createElement('p'); status.textContent = '報價：TWSE MIS · 均量：FinMind'; content.append(status);
   const rows = state.data.missing_rows || [];
   if (!rows.length) {const p = document.createElement('p'); p.textContent = '目前沒有待確認資料。'; content.append(p);}
-  for (const row of rows) {const p = document.createElement('p'); p.textContent = `${row.symbol}：${row.reason}${row.fugle_error ? '；富果：' + row.fugle_error : ''}`; content.append(p);}
+  for (const row of rows) {const p = document.createElement('p'); p.textContent = `${row.symbol}：${row.reason}`; content.append(p);}
   $('missingDialog').showModal();
 });
 for (const id of ['helpNav', 'helpFooter']) $(id).addEventListener('click', () => $('helpDialog').showModal());

@@ -5,7 +5,7 @@
 <aside class="sidebar">
   <a class="brand" href="/" aria-label="台股量價首頁"><span class="brand-icon">▥</span><span>台股量價<small>STOCK SCREENER</small></span></a>
 <div class="nav-label">選股策略</div><nav aria-label="選股策略"><a href="/" class="nav-item active" aria-current="page"><span class="nav-number">01</span>量價篩選</a><a href="/strategy2" class="nav-item"><span class="nav-number">02</span>跌深反彈</a><a href="/strategy3" class="nav-item"><span class="nav-number">03</span>強勢拉回</a><button class="nav-item nav-help" id="helpNav"><span>ⓘ</span>資料說明</button></nav>
-  <div class="sidebar-bottom"><span class="dot"></span>本機選股<p>TWSE · Fugle · FinMind</p></div>
+  <div class="sidebar-bottom"><span class="dot"></span>本機選股<p>TWSE MIS · FinMind</p></div>
 </aside>
 <main id="scanner">
   <header class="topbar"><div class="breadcrumb">台股<span>/</span>量價篩選</div><div class="local-badge">本機</div></header>
@@ -43,5 +43,5 @@
 </main>
 <dialog id="detailDialog"><div class="dialog-header"><div><p class="eyebrow" id="detailCode"></p><h2 id="detailName"></h2></div><button class="close-dialog" aria-label="關閉詳情">×</button></div><div id="detailContent"></div></dialog>
 <dialog id="missingDialog"><div class="dialog-header"><h2>未確認資料與原因</h2><button class="close-dialog" aria-label="關閉缺失原因">×</button></div><div class="help-content" id="missingContent"></div></dialog>
-<dialog id="helpDialog"><div class="dialog-header"><h2>資料與計算方式</h2><button class="close-dialog" aria-label="關閉說明">×</button></div><div class="help-content"><h3>漲幅</h3><p>以證交所 MIS 的有效最後成交價及昨收／參考價計算，缺失時用富果實際成交資料補查。無有效成交價、資料日期非今天的股票不列入當次掃描。</p><h3>量能倍數</h3><p>今日整股累計量 ÷ 前 N 個交易日平均成交股數。MIS 累計張數換算成股，歷史日線成交量優先使用 FinMind，缺失時改查富果。富果整股累計張數亦換算成股；個股詳情列出實際來源。日均量不含今天；盤中不推估全日量。</p><h3>盤中自動更新</h3><p>開啟後立即查詢一次，之後在每次掃描完成後，依設定間隔重新查詢最新漲幅與成交量。全市場查詢需時間，各檔成交時間可能不同，資料時效依來源回傳為準。頁面切至背景時暫停新增查詢，回到前景後恢復。停止、取消勾選或發生錯誤時關閉自動更新。量比始終使用當日累計量，不推估收盤量。</p><h3>更新與資料範圍</h3><p>畫面先顯示最近一次完成的掃描。調整條件會篩選已下載資料；漲幅超出已下載範圍或變更日均量天數時，需要更新行情。遇 API 額度限制會揭露未完成檢查數，不會當成不符合。</p><p>股票名單為本機既有上市櫃普通股清單，不含 ETF、特別股、權證及興櫃；名單日期可在資料卡查看。量價篩選不等於買進訊號。</p></div></dialog>
+<dialog id="helpDialog"><div class="dialog-header"><h2>資料與計算方式</h2><button class="close-dialog" aria-label="關閉說明">×</button></div><div class="help-content"><h3>漲幅</h3><p>以證交所 MIS 的有效最後成交價及昨收／參考價計算。無有效成交價、資料日期非今天的股票不列入當次掃描。</p><h3>量能倍數</h3><p>今日整股累計量 ÷ 前 N 個交易日平均成交股數。MIS 累計張數換算成股，歷史日線成交量使用 FinMind；缺失時列為待確認。日均量不含今天；盤中不推估全日量。</p><h3>盤中自動更新</h3><p>開啟後立即查詢一次，之後在每次掃描完成後，依設定間隔重新查詢最新漲幅與成交量。全市場查詢需時間，各檔成交時間可能不同，資料時效依來源回傳為準。頁面切至背景時暫停新增查詢，回到前景後恢復。停止、取消勾選或發生錯誤時關閉自動更新。量比始終使用當日累計量，不推估收盤量。</p><h3>更新與資料範圍</h3><p>畫面先顯示最近一次完成的掃描。調整條件會篩選已下載資料；漲幅超出已下載範圍或變更日均量天數時，需要更新行情。遇 API 額度限制會揭露未完成檢查數，不會當成不符合。</p><p>股票名單為本機既有上市櫃普通股清單，不含 ETF、特別股、權證及興櫃；名單日期可在資料卡查看。量價篩選不等於買進訊號。</p></div></dialog>
 </body></html>

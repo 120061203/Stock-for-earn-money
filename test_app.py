@@ -5,7 +5,9 @@ import unittest
 import re
 from pathlib import Path
 
-from app import ROOT, load_snapshot, parameters
+from app import ROOT, load_snapshot, parameters, ScanJob
+from unittest.mock import Mock
+from scan_errors import PREFIX
 
 
 class StockAppTests(unittest.TestCase):
@@ -16,6 +18,26 @@ class StockAppTests(unittest.TestCase):
         referenced = set(re.findall(r"\$\('([^']+)'\)", script))
         self.assertFalse(referenced - ids)
         self.assertIn('src="/app.js" type="module"', html)
+
+    def test_scan_failure_surfaces_safe_reason(self):
+        with tempfile.TemporaryDirectory() as folder:
+            job=ScanJob();job.log=Path(folder)/'scan.log'
+            job.log.write_text(PREFIX+json.dumps(dict(code='MIS_HTTP',status=403,secret='do-not-display')))
+            process=Mock();process.wait.return_value=1
+            job._finish(process)
+            self.assertEqual(job.state['error_code'],'MIS_HTTP')
+            self.assertIn('403',job.state['message'])
+            self.assertNotIn('do-not-display',job.state['message'])
+
+    def test_old_fugle_results_require_a_fresh_scan(self):
+        with tempfile.TemporaryDirectory() as folder:
+            data=Path(folder)
+            path=data/'gainers_2026-10-21_3_5_vol2x_ma20.checked.csv'
+            path.write_text('symbol,source,volume_history_source\n2330,Fugle,FinMind\n')
+            result=load_snapshot(20,data)
+            self.assertFalse(result['available'])
+            self.assertEqual(result['rows'],[])
+            self.assertIn('TWSE MIS',result['message'])
 
     def test_defaults_and_parameter_bounds(self):
         self.assertEqual(parameters({}), dict(min_change=3, max_change=5, min_ratio=2, days=20))

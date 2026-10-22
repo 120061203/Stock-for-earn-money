@@ -3,7 +3,6 @@ from unittest.mock import Mock, patch
 import pandas as pd
 from api_errors import ApiLimitError
 from quote_fallback import FugleSupplement, fugle_quote, repair_quotes
-from filter_today_gainers import filter_volume
 
 
 class SupplementTests(unittest.TestCase):
@@ -40,27 +39,6 @@ class SupplementTests(unittest.TestCase):
         self.assertEqual(client.quote.call_count, 1)
         self.assertTrue(all(row['fugle_error'] == '額度限制' for row in missing))
 
-    @patch('live_data.FinMindClient')
-    def test_history_fallback_and_primary_recovery(self, primary):
-        history = [dict(date='2026-10-19', Trading_Volume=1000)]
-        primary.return_value.fetch.side_effect = [ValueError('資料缺失'), history]
-        client = Mock()
-        client.candles.return_value = pd.DataFrame([dict(date='2026-10-19', volume=1000)])
-        supplement = FugleSupplement(client, interval=0)
-        quotes = [dict(symbol=s, name=s, today_volume_shares=2000) for s in ['2330', '2317']]
-        rows = filter_volume(quotes, '2026-10-20', 1, 2, supplement)
-        self.assertEqual([r['volume_history_source'] for r in rows], ['Fugle', 'FinMind'])
-        self.assertTrue(all(r['volume_pass'] for r in rows))
-        self.assertEqual(client.candles.call_count, 1)
-
-    @patch('live_data.FinMindClient')
-    def test_fugle_limit_does_not_stop_finmind(self, primary):
-        primary.return_value.fetch.side_effect = [ValueError('缺資料'), [dict(date='2026-10-19', Trading_Volume=1000)]]
-        client = Mock(); client.candles.side_effect = ApiLimitError('富果額度限制')
-        supplement = FugleSupplement(client, interval=0)
-        rows = filter_volume([dict(symbol=s, name=s, today_volume_shares=2000) for s in ['2330', '2317']], '2026-10-20', 1, 2, supplement)
-        self.assertEqual(rows[0]['volume_status'], '額度受限')
-        self.assertTrue(rows[1]['volume_pass'])
 
 
 if __name__ == '__main__':
